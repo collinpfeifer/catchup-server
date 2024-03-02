@@ -1,0 +1,76 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "cockroachdb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id      String   @id @default(uuid())
+  phoneNumber    String   @unique
+  name     String
+  password String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  refreshToken String?
+  answers Answer[] @relation("UserAnswers")
+  appearsIn Answer[] @relation("UserAppearsIn")
+}
+
+model AnonUser {
+  id      String   @id @default(uuid())
+  phoneNumber    String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  appearsIn Answer[] @relation("AnonUserAppearsIn")
+}
+
+enum AnswerType {
+  TEXT
+  USER
+  ANON_USER
+}
+
+enum QuestionType {
+  TEXT
+  USER
+}
+
+model Answer {
+  id        String   @id @default(uuid())
+  type      AnswerType
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  answerType AnswerType
+  user      User?   @relation("UserAnswers",fields: [userId], references: [id])
+  userId    String?
+  anonUser  AnonUser? @relation("AnonUserAppearsIn",fields: [anonUserId], references: [id])
+  anonUserId String?
+  question  Question @relation(fields: [questionId], references: [id])
+  questionId String
+  textAnswer String?
+  userAnswer User? @relation("UserAppearsIn",fields: [userAnswerId], references: [id])
+  userAnswerId String?
+}
+
+
+model Question {
+  id        String   @id @default(uuid())
+  questionType QuestionType
+  question String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  answers   Answer[]
+  nextQuestion Question? @relation("QuestionHistory",fields: [nextQuestionId], references: [id])
+  nextQuestionId String? @unique
+  previousQuestion Question? @relation("QuestionHistory")
+}
+
