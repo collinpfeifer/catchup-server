@@ -49,22 +49,21 @@ model Answer {
   type      AnswerType
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  answerType AnswerType
-  user      User?   @relation("UserAnswers",fields: [userId], references: [id])
-  userId    String?
-  anonUser  AnonUser? @relation("AnonUserAppearsIn",fields: [anonUserId], references: [id])
-  anonUserId String?
+  user      User   @relation("UserAnswers",fields: [userId], references: [id])
+  userId    String
   question  Question @relation(fields: [questionId], references: [id])
   questionId String
   textAnswer String?
   userAnswer User? @relation("UserAppearsIn",fields: [userAnswerId], references: [id])
   userAnswerId String?
+  anonUserAnswer AnonUser? @relation("AnonUserAppearsIn",fields: [anonUserAnswerId], references: [id])
+  anonUserAnswerId String?
 }
 
 
 model Question {
   id        String   @id @default(uuid())
-  questionType QuestionType
+  type QuestionType
   question String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
