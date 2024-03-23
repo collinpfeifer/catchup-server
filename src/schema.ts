@@ -32,6 +32,8 @@ const typeDefs = /* GraphQL */ `
     logout: Boolean
     signUp(name: String!, phoneNumber: String!, password: String!): AuthPayload
     refreshToken(refreshToken: String!): AuthPayload
+    sendSMSVerificationCode(phoneNumber: String!): Boolean
+    verifySMSCode(phoneNumber: String!, code: String!): Boolean
     createAnonUser(phoneNumber: String!): AnonUser
     createQuestion(question: String!): Question
     answerQuestion(id: ID!, answer: String, type: AnswerType): Answer
@@ -235,10 +237,20 @@ const resolvers = {
       if (!valid) {
         throw new Error('Invalid password');
       }
-      const token = sign({ userId: user.id }, APP_SECRET);
+      const token = sign({ userId: user.id }, APP_SECRET, {
+        expiresIn: '1d',
+      });
+      const refreshToken = sign({ userId: user.id }, APP_SECRET, {
+        expiresIn: '90d',
+      });
+      const updatedUser = await context.prisma.user.update({
+        where: { id: user.id },
+        data: { refreshToken },
+      });
       return {
         token,
-        user,
+        refreshToken,
+        user: updatedUser,
       };
     },
     logout: async (parent: unknown, args: {}, context: GraphQLContext) => {
@@ -247,6 +259,12 @@ const resolvers = {
         where: { id: context.currentUser.id },
         data: { refreshToken: null },
       });
+    },
+    sendSMSVerificationCode: async () => {
+      // Twilio when the phone number is verified
+    },
+    verifySMSCode: async () => {
+      // Twilio when the phone number is verified
     },
     refreshToken: async (
       parent: unknown,
@@ -261,20 +279,24 @@ const resolvers = {
         context.currentUser.refreshToken
       );
       if (!valid) throw new Error('Invalid refresh token');
-      const refrshToken = sign({ userId: context.currentUser.id }, APP_SECRET, {
-        expiresIn: '90d',
-      });
+      const refreshToken = sign(
+        { userId: context.currentUser.id },
+        APP_SECRET,
+        {
+          expiresIn: '90d',
+        }
+      );
       const token = sign({ userId: context.currentUser.id }, APP_SECRET, {
         expiresIn: '1d',
       });
       const user = await context.prisma.user.update({
         where: { id: context.currentUser.id },
-        data: { refreshToken: token },
+        data: { refreshToken },
       });
       if (!user) throw new Error('Invalid refresh token');
       return {
         token,
-        refrshToken,
+        refreshToken,
         user,
       };
     },
@@ -310,10 +332,14 @@ const resolvers = {
       const refreshToken = sign({ userId: user.id }, APP_SECRET, {
         expiresIn: '90d',
       });
+      const updatedUser = await context.prisma.user.update({
+        where: { id: user.id },
+        data: { refreshToken },
+      });
       return {
         token,
         refreshToken,
-        user,
+        user: updatedUser,
       };
     },
     createAnonUser: async (

@@ -7,7 +7,7 @@ export async function authenticateUser(
   prisma: PrismaClient,
   request: Request
 ): Promise<User | null> {
-  const header = request.headers.get('authorization');
+  const header = request.headers.get('Authorization');
   if (header !== null) {
     // 1
     const token = header.split(' ')[1];
