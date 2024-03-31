@@ -6,8 +6,8 @@ import TwilioSDK from 'twilio';
 
 const prisma = new PrismaClient();
 const twilioClient = twilio(
-  process.env.TWILIO_TEST_ACCOUNT_SID,
-  process.env.TWILIO_TEST_ACCOUNT_AUTH_TOKEN
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_ACCOUNT_AUTH_TOKEN
 );
 
 export type GraphQLContext = {

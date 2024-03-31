@@ -68,6 +68,7 @@ model Question {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   answers   Answer[]
+  responses Int @default(0)
   nextQuestion Question? @relation("QuestionHistory",fields: [nextQuestionId], references: [id])
   nextQuestionId String? @unique
   previousQuestion Question? @relation("QuestionHistory")

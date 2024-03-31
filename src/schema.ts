@@ -22,6 +22,8 @@ const typeDefs = /* GraphQL */ `
     anonUsers: [AnonUser!]!
     anonUserByPhoneNumber(phoneNumber: String!): AnonUser
     question(id: ID!): Question
+    questionOfTheDay: Question
+    userAnswerExists(userId: ID!, questionId: ID!): Boolean
     questions: [Question!]!
     answer(id: ID!): Answer
     answers: [Answer!]!
@@ -85,6 +87,7 @@ const typeDefs = /* GraphQL */ `
     createdAt: String!
     updatedAt: String!
     answers: [Answer!]!
+    responses: Int!
     nextQuestion: Question
     previousQuestion: Question
   }
@@ -139,6 +142,8 @@ const resolvers = {
       await context.prisma.answer.findMany({
         where: { questionId: parent.id },
       }),
+    responses: async (parent: Question, args: {}, context: GraphQLContext) =>
+      parent.responses,
     nextQuestion: async (parent: Question, args: {}, context: GraphQLContext) =>
       parent.nextQuestionId
         ? await context.prisma.question.findUnique({
@@ -159,19 +164,25 @@ const resolvers = {
     createdAt: (parent: Answer) => parent.createdAt,
     updatedAt: (parent: Answer) => parent.updatedAt,
     answerUser: async (parent: Answer, args: {}, context: GraphQLContext) => {
-      switch (parent.type) {
-        case 'USER':
-          if (parent.userAnswerId === null) return null;
-          return await context.prisma.user.findUnique({
+      if (parent.type === 'USER') {
+        if (parent.userAnswerId === null) return null;
+        return {
+          __typename: 'User',
+          ...(await context.prisma.user.findUnique({
             where: { id: parent.userAnswerId },
-          });
-        case 'ANON_USER':
-          if (parent.anonUserAnswerId === null) return null;
-          return await context.prisma.anonUser.findUnique({
+          })),
+        };
+      } else if (parent.type === 'ANON_USER') {
+        if (parent.anonUserAnswerId === null) return null;
+        return {
+          __typename: 'AnonUser',
+          ...(await context.prisma.anonUser.findUnique({
             where: { id: parent.anonUserAnswerId },
-          });
+          })),
+        };
       }
     },
+
     textAnswer: (parent: Answer) => parent.textAnswer,
   },
 
@@ -211,6 +222,11 @@ const resolvers = {
       args: { id: string },
       context: GraphQLContext
     ) => await context.prisma.question.findUnique({ where: { id: args.id } }),
+    questionOfTheDay: async (
+      parent: unknown,
+      args: {},
+      context: GraphQLContext
+    ) => await context.prisma.question.findFirst(),
     questions: async (parent: unknown, args: {}, context: GraphQLContext) =>
       await context.prisma.question.findMany(),
     answer: async (
@@ -218,6 +234,16 @@ const resolvers = {
       args: { id: string },
       context: GraphQLContext
     ) => await context.prisma.answer.findUnique({ where: { id: args.id } }),
+    userAnswerExists: async (
+      parent: unknown,
+      args: { userId: string; questionId: string },
+      context: GraphQLContext
+    ) => {
+      const found = await context.prisma.answer.findFirst({
+        where: { userId: args.userId, questionId: args.questionId },
+      });
+      return Boolean(found);
+    },
     answers: async (parent: unknown, args: {}, context: GraphQLContext) =>
       await context.prisma.answer.findMany(),
   },
@@ -260,11 +286,43 @@ const resolvers = {
         data: { refreshToken: null },
       });
     },
-    sendSMSVerificationCode: async () => {
+    sendSMSVerificationCode: async (
+      parent: unknown,
+      args: { phoneNumber: string },
+      context: GraphQLContext
+    ) => {
       // Twilio when the phone number is verified
+      const foundNumber = await context.prisma.user.findUnique({
+        where: { phoneNumber: args.phoneNumber },
+      });
+      if (foundNumber) throw new Error('Phone number already exists');
+      else {
+        if (!process.env.TWILIO_VERIFY_SERVICE_SID)
+          throw new Error('No Twilio Verify Service SID');
+        context.twilioClient.verify.v2
+          .services(process.env.TWILIO_VERIFY_SERVICE_SID)
+          .verifications.create({
+            to: args.phoneNumber,
+            channel: 'sms',
+          })
+          .then((verification) => console.log(verification.status));
+      }
     },
-    verifySMSCode: async () => {
+    verifySMSCode: async (
+      parent: unknown,
+      args: { phoneNumber: string; code: string },
+      context: GraphQLContext
+    ) => {
+      if (!process.env.TWILIO_VERIFY_SERVICE_SID)
+        throw new Error('No Twilio Verify Service SID');
       // Twilio when the phone number is verified
+      context.twilioClient.verify.v2
+        .services(process.env.TWILIO_VERIFY_SERVICE_SID)
+        .verificationChecks.create({
+          to: args.phoneNumber,
+          code: args.code,
+        })
+        .then((verification_check) => console.log(verification_check.status));
     },
     refreshToken: async (
       parent: unknown,
@@ -314,10 +372,13 @@ const resolvers = {
         where: { phoneNumber: args.phoneNumber },
       });
       if (userExists) throw new Error('User already exists');
-      const password = await hash(args.password, 10);
-      const anonUser = await context.prisma.anonUser.findUnique({
+      const anonUserExists = await context.prisma.anonUser.findUnique({
         where: { phoneNumber: args.phoneNumber },
       });
+      if(anonUserExists){
+        // change all answers they are answered for to the type of USER, and connect them to the user
+      }
+      const password = await hash(args.password, 10);
       // convert anonUser to user if exists
       const user = await context.prisma.user.create({
         data: {
@@ -368,34 +429,100 @@ const resolvers = {
       context: GraphQLContext
     ) => {
       if (context.currentUser === null) throw new Error('Not authenticated');
-      switch (args.type) {
-        case 'TEXT':
-          return await context.prisma.answer.create({
+      console.log(args);
+      if (args.type === 'TEXT') {
+        const textAnswer = await context.prisma.answer.create({
+          data: {
+            questionId: args.id,
+            userId: context.currentUser.id,
+            type: args.type,
+            textAnswer: args.answer,
+          },
+        });
+        await context.prisma.question.update({
+          where: { id: args.id },
+          data: { answers: { connect: { id: textAnswer.id } } },
+        });
+        return textAnswer;
+      } else if (args.type === 'USER') {
+        const foundUser = await context.prisma.user.findUnique({
+          where: { phoneNumber: args.answer },
+        });
+        if (!foundUser) {
+          args.type = 'ANON_USER';
+          let anonUserId;
+          const foundAnonUser = await context.prisma.anonUser.findUnique({
+            where: { phoneNumber: args.answer },
+          });
+          if (foundAnonUser) anonUserId = foundAnonUser.id;
+          else {
+            const anonUser = await context.prisma.anonUser.create({
+              data: { phoneNumber: args.answer },
+            });
+            anonUserId = anonUser.id;
+          }
+          const anonUserAnswer = await context.prisma.answer.create({
             data: {
               questionId: args.id,
-              userId: context.currentUser.id,
               type: args.type,
-              textAnswer: args.answer,
+              userId: context.currentUser.id,
+              anonUserAnswerId: anonUserId,
             },
           });
-        case 'USER':
-          return await context.prisma.answer.create({
+          await context.prisma.question.update({
+            where: { id: args.id },
+            data: {
+              responses: { increment: 1 },
+              answers: { connect: { id: anonUserAnswer.id } },
+            },
+          });
+          return anonUserAnswer;
+        } else {
+          const userAnswer = await context.prisma.answer.create({
             data: {
               questionId: args.id,
               type: args.type,
               userId: context.currentUser.id,
-              userAnswerId: args.answer,
+              userAnswerId: foundUser.id,
             },
           });
-        case 'ANON_USER':
-          return await context.prisma.answer.create({
+          await context.prisma.question.update({
+            where: { id: args.id },
             data: {
-              questionId: args.id,
-              type: args.type,
-              userId: context.currentUser.id,
-              anonUserAnswerId: args.answer,
+              responses: { increment: 1 },
+              answers: { connect: { id: userAnswer.id } },
             },
           });
+          return userAnswer;
+        }
+      } else if (args.type === 'ANON_USER') {
+        let anonUserId;
+        const foundAnonUser = await context.prisma.anonUser.findUnique({
+          where: { phoneNumber: args.answer },
+        });
+        if (foundAnonUser) anonUserId = foundAnonUser.id;
+        else {
+          const anonUser = await context.prisma.anonUser.create({
+            data: { phoneNumber: args.answer },
+          });
+          anonUserId = anonUser.id;
+        }
+        const anonUserAnswer = await context.prisma.answer.create({
+          data: {
+            questionId: args.id,
+            type: args.type,
+            userId: context.currentUser.id,
+            anonUserAnswerId: anonUserId,
+          },
+        });
+        await context.prisma.question.update({
+          where: { id: args.id },
+          data: {
+            responses: { increment: 1 },
+            answers: { connect: { id: anonUserAnswer.id } },
+          },
+        });
+        return anonUserAnswer;
       }
     },
   },
