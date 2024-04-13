@@ -24,6 +24,7 @@ model User {
   answers Answer[] @relation("UserAnswers")
   appearsIn Answer[] @relation("UserAppearsIn")
   friends User[] @relation("Friends")
+  friendsOf User[] @relation("Friends")
   sentFriendRequests FriendRequest[] @relation("SentFriendRequest")
   receivedFriendRequests FriendRequest[] @relation("ReceivedFriendRequest")
 }
