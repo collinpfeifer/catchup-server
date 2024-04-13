@@ -23,6 +23,9 @@ model User {
   refreshToken String?
   answers Answer[] @relation("UserAnswers")
   appearsIn Answer[] @relation("UserAppearsIn")
+  friends User[] @relation("Friends")
+  sentFriendRequests FriendRequest[] @relation("SentFriendRequest")
+  receivedFriendRequests FriendRequest[] @relation("ReceivedFriendRequest")
 }
 
 model AnonUser {
@@ -44,6 +47,16 @@ enum QuestionType {
   USER
 }
 
+
+model FriendRequest{
+  id String @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sender User @relation("SentFriendRequest",fields: [senderId], references: [id])
+  senderId String
+  receiver User @relation("ReceivedFriendRequest",fields: [receiverId], references: [id])
+  receiverId String
+}
 model Answer {
   id        String   @id @default(uuid())
   type      AnswerType
@@ -58,6 +71,9 @@ model Answer {
   userAnswerId String?
   anonUserAnswer AnonUser? @relation("AnonUserAppearsIn",fields: [anonUserAnswerId], references: [id])
   anonUserAnswerId String?
+  nextAnswer Answer? @relation("AnswerHistory",fields: [nextAnswerId], references: [id])
+  nextAnswerId String? @unique
+  previousAnswer Answer? @relation("AnswerHistory")
 }
 
 

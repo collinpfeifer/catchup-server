@@ -9,9 +9,10 @@ import type {
 } from '@prisma/client';
 import { GraphQLContext } from './context';
 import { hash, compare } from 'bcryptjs';
-import { sign } from 'jsonwebtoken';
+import { sign, verify } from 'jsonwebtoken';
 import { APP_SECRET } from './auth';
 import { z } from 'zod';
+import { GraphQLError } from 'graphql';
 
 const typeDefs = /* GraphQL */ `
   type Query {
@@ -22,7 +23,7 @@ const typeDefs = /* GraphQL */ `
     anonUsers: [AnonUser!]!
     anonUserByPhoneNumber(phoneNumber: String!): AnonUser
     question(id: ID!): Question
-    questionOfTheDay: Question
+    questionsOfTheDay: [Question!]!
     userAnswerExists(userId: ID!, questionId: ID!): Boolean
     questions: [Question!]!
     answer(id: ID!): Answer
@@ -68,14 +69,14 @@ const typeDefs = /* GraphQL */ `
     createdAt: String!
     updatedAt: String!
     refreshToken: String!
-    answers: [Answer!]!
-    appearsIn: [Answer!]!
+    answers: [[Answer!]!]!
+    appearsIn: [[Answer!]!]!
   }
 
   type AnonUser {
     id: ID!
     phoneNumber: String!
-    appearsIn: [Answer!]!
+    appearsIn: [[Answer!]!]!
     createdAt: String!
     updatedAt: String!
   }
@@ -88,8 +89,6 @@ const typeDefs = /* GraphQL */ `
     updatedAt: String!
     answers: [Answer!]!
     responses: Int!
-    nextQuestion: Question
-    previousQuestion: Question
   }
 
   type Answer {
@@ -99,7 +98,7 @@ const typeDefs = /* GraphQL */ `
     type: AnswerType!
     createdAt: String!
     updatedAt: String!
-    answerUser: AnswerUser
+    userAnswer: AnswerUser
     textAnswer: String
   }
 `;
@@ -113,24 +112,69 @@ const resolvers = {
     createdAt: (parent: User) => parent.createdAt,
     updatedAt: (parent: User) => parent.updatedAt,
     refreshToken: (parent: User) => parent.refreshToken,
-    answers: async (parent: User, args: {}, context: GraphQLContext) =>
-      await context.prisma.answer.findMany({
+    answers: async (parent: User, args: {}, context: GraphQLContext) => {
+      const answers = await context.prisma.answer.findMany({
         where: { userId: parent.id },
-      }),
-    appearsIn: async (parent: User, args: {}, context: GraphQLContext) =>
-      await context.prisma.answer.findMany({
+      });
+      const answerSet = new Set();
+      const result = [];
+      for (const answer of answers) {
+        const list = [];
+        if (answerSet.has(answer.id)) continue;
+        let currentAnswer: Answer | null = answer;
+        while (currentAnswer?.nextAnswerId) {
+          list.push(currentAnswer);
+          answerSet.add(currentAnswer?.id);
+          currentAnswer = await context.prisma.answer.findUnique({
+            where: { id: currentAnswer?.nextAnswerId },
+          });
+        }
+        if (list.length > 0) result.push(list);
+      }
+      return result;
+    },
+    appearsIn: async (parent: User, args: {}, context: GraphQLContext) => {
+      const result = [];
+      const answers = await context.prisma.answer.findMany({
         where: { userAnswerId: parent.id },
-      }),
+      });
+      for (const answer of answers) {
+        const list = [];
+        let currentAnswer: Answer | null = answer;
+        while (currentAnswer?.nextAnswerId) {
+          list.push(currentAnswer);
+          currentAnswer = await context.prisma.answer.findUnique({
+            where: { id: currentAnswer?.nextAnswerId },
+          });
+        }
+        if (list.length > 0) result.push(list);
+      }
+      return result;
+    },
   },
   AnonUser: {
     id: (parent: AnonUser) => parent.id,
     phoneNumber: (parent: AnonUser) => parent.phoneNumber,
     createdAt: (parent: AnonUser) => parent.createdAt,
     updatedAt: (parent: AnonUser) => parent.updatedAt,
-    appearsIn: async (parent: AnonUser, args: {}, context: GraphQLContext) =>
-      await context.prisma.answer.findMany({
+    appearsIn: async (parent: AnonUser, args: {}, context: GraphQLContext) => {
+      const result = [];
+      const answers = await context.prisma.answer.findMany({
         where: { anonUserAnswerId: parent.id },
-      }),
+      });
+      for (const answer of answers) {
+        const list = [];
+        let currentAnswer: Answer | null = answer;
+        while (currentAnswer?.nextAnswerId) {
+          list.push(currentAnswer);
+          currentAnswer = await context.prisma.answer.findUnique({
+            where: { id: currentAnswer?.nextAnswerId },
+          });
+        }
+        if (list.length > 0) result.push(list);
+      }
+      return result;
+    },
   },
   Question: {
     id: (parent: Question) => parent.id,
@@ -144,12 +188,6 @@ const resolvers = {
       }),
     responses: async (parent: Question, args: {}, context: GraphQLContext) =>
       parent.responses,
-    nextQuestion: async (parent: Question, args: {}, context: GraphQLContext) =>
-      parent.nextQuestionId
-        ? await context.prisma.question.findUnique({
-            where: { id: parent.nextQuestionId },
-          })
-        : null,
   },
   Answer: {
     id: (parent: Answer) => parent.id,
@@ -163,7 +201,7 @@ const resolvers = {
       }),
     createdAt: (parent: Answer) => parent.createdAt,
     updatedAt: (parent: Answer) => parent.updatedAt,
-    answerUser: async (parent: Answer, args: {}, context: GraphQLContext) => {
+    userAnswer: async (parent: Answer, args: {}, context: GraphQLContext) => {
       if (parent.type === 'USER') {
         if (parent.userAnswerId === null) return null;
         return {
@@ -182,7 +220,6 @@ const resolvers = {
         };
       }
     },
-
     textAnswer: (parent: Answer) => parent.textAnswer,
   },
 
@@ -222,11 +259,28 @@ const resolvers = {
       args: { id: string },
       context: GraphQLContext
     ) => await context.prisma.question.findUnique({ where: { id: args.id } }),
-    questionOfTheDay: async (
+    questionsOfTheDay: async (
       parent: unknown,
       args: {},
       context: GraphQLContext
-    ) => await context.prisma.question.findFirst(),
+    ) => {
+      if (!context.currentUser)
+        throw new GraphQLError('NOT AUTHENTICATED', {
+          extensions: {
+            code: 'FORBIDDEN',
+          },
+        });
+      let currentQuestion: Question | null =
+        await context.prisma.question.findFirst();
+      const result = [currentQuestion];
+      while (currentQuestion?.nextQuestionId) {
+        currentQuestion = await context.prisma.question.findUnique({
+          where: { id: currentQuestion.nextQuestionId },
+        });
+        result.push(currentQuestion);
+      }
+      return result;
+    },
     questions: async (parent: unknown, args: {}, context: GraphQLContext) =>
       await context.prisma.question.findMany(),
     answer: async (
@@ -239,6 +293,12 @@ const resolvers = {
       args: { userId: string; questionId: string },
       context: GraphQLContext
     ) => {
+      if (!context.currentUser)
+        throw new GraphQLError('NOT AUTHENTICATED', {
+          extensions: {
+            code: 'FORBIDDEN',
+          },
+        });
       const found = await context.prisma.answer.findFirst({
         where: { userId: args.userId, questionId: args.questionId },
       });
@@ -280,7 +340,12 @@ const resolvers = {
       };
     },
     logout: async (parent: unknown, args: {}, context: GraphQLContext) => {
-      if (!context.currentUser) throw new Error('Not authenticated');
+      if (!context.currentUser)
+        throw new GraphQLError('NOT AUTHENTICATED', {
+          extensions: {
+            code: 'FORBIDDEN',
+          },
+        });
       await context.prisma.user.update({
         where: { id: context.currentUser.id },
         data: { refreshToken: null },
@@ -329,26 +394,26 @@ const resolvers = {
       args: { refreshToken: string },
       context: GraphQLContext
     ) => {
-      if (!context.currentUser) throw new Error('Not authenticated');
-      if (!context.currentUser.refreshToken)
-        throw new Error('No refresh token');
-      const valid = compare(
-        args.refreshToken,
-        context.currentUser.refreshToken
-      );
+      const decodedToken = verify(args.refreshToken, APP_SECRET) as {
+        userId: string;
+      };
+      const refreshTokenUser = await context.prisma.user.findUnique({
+        where: { id: decodedToken.userId },
+      });
+
+      if (!refreshTokenUser) throw new Error('Invalid refresh token');
+      if (!refreshTokenUser.refreshToken) throw new Error('No refresh token');
+
+      const valid = compare(args.refreshToken, refreshTokenUser.refreshToken);
       if (!valid) throw new Error('Invalid refresh token');
-      const refreshToken = sign(
-        { userId: context.currentUser.id },
-        APP_SECRET,
-        {
-          expiresIn: '90d',
-        }
-      );
-      const token = sign({ userId: context.currentUser.id }, APP_SECRET, {
+      const refreshToken = sign({ userId: refreshTokenUser.id }, APP_SECRET, {
+        expiresIn: '90d',
+      });
+      const token = sign({ userId: refreshTokenUser.id }, APP_SECRET, {
         expiresIn: '1d',
       });
       const user = await context.prisma.user.update({
-        where: { id: context.currentUser.id },
+        where: { id: refreshTokenUser.id },
         data: { refreshToken },
       });
       if (!user) throw new Error('Invalid refresh token');
@@ -371,15 +436,16 @@ const resolvers = {
       const userExists = await context.prisma.user.findUnique({
         where: { phoneNumber: args.phoneNumber },
       });
+
       if (userExists) throw new Error('User already exists');
+
       const anonUserExists = await context.prisma.anonUser.findUnique({
         where: { phoneNumber: args.phoneNumber },
+        include: { appearsIn: true },
       });
-      if(anonUserExists){
-        // change all answers they are answered for to the type of USER, and connect them to the user
-      }
+
       const password = await hash(args.password, 10);
-      // convert anonUser to user if exists
+
       const user = await context.prisma.user.create({
         data: {
           name: args.name,
@@ -393,10 +459,51 @@ const resolvers = {
       const refreshToken = sign({ userId: user.id }, APP_SECRET, {
         expiresIn: '90d',
       });
+      // convert anonUser to user if exists
+      if (anonUserExists) {
+        // change all answers they are answered for to the type of USER, and connect them to the user
+        // go through all appears in and change the type to USER and change useranswerid to new user id
+        // first test if I dont connect the answer to the user and just change the type and useranswerid will it still show up under the new user
+        // then i wonder if i can feed the appearsin to the user creation call and have it connect the answers
+        const updateAnswerPromises = await Promise.all(
+          anonUserExists.appearsIn.map(
+            async (answer) =>
+              await context.prisma.answer.update({
+                where: { id: answer.id },
+                data: {
+                  // Update fields of the answer if needed
+                  type: 'USER', //
+                  userAnswerId: user.id, // Set the user id to the new user id
+                  anonUserAnswerId: null, // Set the anonUserAnswerId to null
+                },
+              })
+          )
+        );
+
+        const answerIds = updateAnswerPromises.map((answer) => ({
+          id: answer.id,
+        }));
+
+        const updatedUser = await context.prisma.user.update({
+          where: { id: user.id },
+          data: { refreshToken, appearsIn: { connect: answerIds } },
+        });
+
+        await context.prisma.anonUser.delete({
+          where: { id: anonUserExists.id },
+        });
+
+        return {
+          token,
+          refreshToken,
+          user: updatedUser,
+        };
+      }
       const updatedUser = await context.prisma.user.update({
         where: { id: user.id },
         data: { refreshToken },
       });
+
       return {
         token,
         refreshToken,
@@ -425,10 +532,11 @@ const resolvers = {
         id: string;
         answer: string;
         type: AnswerType;
+        previousAnswerId?: string;
       },
       context: GraphQLContext
     ) => {
-      if (context.currentUser === null) throw new Error('Not authenticated');
+      if (context.currentUser === null) throw new Error('NOT AUTHENTICATED');
       console.log(args);
       if (args.type === 'TEXT') {
         const textAnswer = await context.prisma.answer.create({
@@ -442,6 +550,10 @@ const resolvers = {
         await context.prisma.question.update({
           where: { id: args.id },
           data: { answers: { connect: { id: textAnswer.id } } },
+        });
+        await context.prisma.answer.update({
+          where: { id: args.previousAnswerId },
+          data: { nextAnswerId: textAnswer.id },
         });
         return textAnswer;
       } else if (args.type === 'USER') {
@@ -476,6 +588,10 @@ const resolvers = {
               answers: { connect: { id: anonUserAnswer.id } },
             },
           });
+          await context.prisma.answer.update({
+            where: { id: args.previousAnswerId },
+            data: { nextAnswerId: anonUserAnswer.id },
+          });
           return anonUserAnswer;
         } else {
           const userAnswer = await context.prisma.answer.create({
@@ -492,6 +608,10 @@ const resolvers = {
               responses: { increment: 1 },
               answers: { connect: { id: userAnswer.id } },
             },
+          });
+          await context.prisma.answer.update({
+            where: { id: args.previousAnswerId },
+            data: { nextAnswerId: userAnswer.id },
           });
           return userAnswer;
         }
@@ -521,6 +641,10 @@ const resolvers = {
             responses: { increment: 1 },
             answers: { connect: { id: anonUserAnswer.id } },
           },
+        });
+        await context.prisma.answer.update({
+          where: { id: args.previousAnswerId },
+          data: { nextAnswerId: anonUserAnswer.id },
         });
         return anonUserAnswer;
       }
