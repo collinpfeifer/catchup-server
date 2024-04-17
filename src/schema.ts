@@ -19,15 +19,11 @@ const typeDefs = /* GraphQL */ `
     user(id: ID!): User
     users: [User!]!
     userByPhoneNumber(phoneNumber: String!): User
-    anonUser(id: ID!): AnonUser
-    anonUsers: [AnonUser!]!
     anonUserByPhoneNumber(phoneNumber: String!): AnonUser
-    question(id: ID!): Question
     questionsOfTheDay: [Question!]!
     userAnswerExists(userId: ID!, questionId: ID!): Boolean
-    questions: [Question!]!
-    answer(id: ID!): Answer
-    answers: [Answer!]!
+    friendFeed: [FriendAnswer!]!
+    answersOfTheDay: [Answer!]!
   }
 
   type Mutation {
@@ -37,15 +33,27 @@ const typeDefs = /* GraphQL */ `
     refreshToken(refreshToken: String!): AuthPayload
     sendSMSVerificationCode(phoneNumber: String!): Boolean
     verifySMSCode(phoneNumber: String!, code: String!): Boolean
-    createAnonUser(phoneNumber: String!): AnonUser
     createQuestion(question: String!): Question
-    answerQuestion(id: ID!, answer: String, type: AnswerType): Answer
+    answerQuestion(
+      id: ID!
+      answer: String
+      type: AnswerType
+      previousAnswerId: ID
+    ): Answer
+    sendFriendRequest(userId: ID!): Boolean
+    acceptFriendRequest(friendRequestId: ID!): Boolean
+    rejectFriendRequest(friendRequestId: ID!): Boolean
   }
 
   type AuthPayload {
     token: String
     refreshToken: String
     user: User
+  }
+
+  type FriendAnswer {
+    answers: [Answer!]!
+    friend: User!
   }
 
   union AnswerUser = User | AnonUser
@@ -71,6 +79,7 @@ const typeDefs = /* GraphQL */ `
     refreshToken: String!
     answers: [[Answer!]!]!
     appearsIn: [[Answer!]!]!
+    friends: [User]!
   }
 
   type AnonUser {
@@ -150,6 +159,12 @@ const resolvers = {
         if (list.length > 0) result.push(list);
       }
       return result;
+    },
+    friends: async (parent: User, args: {}, context: GraphQLContext) => {
+      const friends = await context.prisma.user.findMany({
+        where: { friends: { some: { id: parent.id } } },
+      });
+      return friends;
     },
   },
   AnonUser: {
@@ -239,13 +254,6 @@ const resolvers = {
       await context.prisma.user.findUnique({
         where: { phoneNumber: args.phoneNumber },
       }),
-    anonUser: async (
-      parent: unknown,
-      args: { id: string },
-      context: GraphQLContext
-    ) => await context.prisma.anonUser.findUnique({ where: { id: args.id } }),
-    anonUsers: async (parent: unknown, args: {}, context: GraphQLContext) =>
-      await context.prisma.anonUser.findMany(),
     anonUserByPhoneNumber: async (
       parent: unknown,
       args: { phoneNumber: string },
@@ -254,11 +262,6 @@ const resolvers = {
       await context.prisma.anonUser.findUnique({
         where: { phoneNumber: args.phoneNumber },
       }),
-    question: async (
-      parent: unknown,
-      args: { id: string },
-      context: GraphQLContext
-    ) => await context.prisma.question.findUnique({ where: { id: args.id } }),
     questionsOfTheDay: async (
       parent: unknown,
       args: {},
@@ -281,13 +284,6 @@ const resolvers = {
       }
       return result;
     },
-    questions: async (parent: unknown, args: {}, context: GraphQLContext) =>
-      await context.prisma.question.findMany(),
-    answer: async (
-      parent: unknown,
-      args: { id: string },
-      context: GraphQLContext
-    ) => await context.prisma.answer.findUnique({ where: { id: args.id } }),
     userAnswerExists: async (
       parent: unknown,
       args: { userId: string; questionId: string },
@@ -304,8 +300,68 @@ const resolvers = {
       });
       return Boolean(found);
     },
-    answers: async (parent: unknown, args: {}, context: GraphQLContext) =>
-      await context.prisma.answer.findMany(),
+    friendFeed: async (parent: unknown, args: {}, context: GraphQLContext) => {
+      if (!context.currentUser)
+        throw new GraphQLError('NOT AUTHENTICATED', {
+          extensions: {
+            code: 'FORBIDDEN',
+          },
+        });
+      const friends = await context.prisma.user.findMany({
+        where: { friends: { some: { id: context.currentUser.id } } },
+      });
+      const questionOfTheDay = await context.prisma.question.findFirst();
+      const result = [];
+      for (const friend of friends) {
+        const friendAnswers = await context.prisma.answer.findMany({
+          where: {
+            userAnswerId: friend?.id,
+            questionId: questionOfTheDay?.id,
+          },
+        });
+        const answers = [];
+        for (const answer of friendAnswers) {
+          let currentAnswer: Answer | null = answer;
+          while (currentAnswer?.nextAnswerId) {
+            currentAnswer = await context.prisma.answer.findUnique({
+              where: { id: currentAnswer.nextAnswerId },
+            });
+            if (currentAnswer?.type === 'TEXT') answers.push(currentAnswer);
+          }
+        }
+        result.push({ answers, friend });
+      }
+    },
+    answersOfTheDay: async (
+      parent: unknown,
+      args: {},
+      context: GraphQLContext
+    ) => {
+      if (!context.currentUser)
+        throw new GraphQLError('NOT AUTHENTICATED', {
+          extensions: {
+            code: 'FORBIDDEN',
+          },
+        });
+      const questionOfTheDay = await context.prisma.question.findFirst();
+      const userAnswers = await context.prisma.answer.findMany({
+        where: {
+          userAnswerId: context.currentUser.id,
+          questionId: questionOfTheDay?.id,
+        },
+      });
+      const result = [];
+      for (const answer of userAnswers) {
+        let currentAnswer: Answer | null = answer;
+        while (currentAnswer?.nextAnswerId) {
+          currentAnswer = await context.prisma.answer.findUnique({
+            where: { id: currentAnswer.nextAnswerId },
+          });
+          if (currentAnswer?.type === 'TEXT') result.push(currentAnswer);
+        }
+      }
+      return result;
+    },
   },
   Mutation: {
     login: async (
@@ -510,14 +566,6 @@ const resolvers = {
         user: updatedUser,
       };
     },
-    createAnonUser: async (
-      parent: unknown,
-      args: { phoneNumber: string },
-      context: GraphQLContext
-    ) =>
-      await context.prisma.anonUser.create({
-        data: { phoneNumber: args.phoneNumber },
-      }),
     createQuestion: async (
       parent: unknown,
       args: { question: string; type: QuestionType },

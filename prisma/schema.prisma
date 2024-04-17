@@ -58,6 +58,8 @@ model FriendRequest{
   receiver User @relation("ReceivedFriendRequest",fields: [receiverId], references: [id])
   receiverId String
 }
+
+
 model Answer {
   id        String   @id @default(uuid())
   type      AnswerType

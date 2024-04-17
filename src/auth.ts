@@ -17,7 +17,9 @@ export async function authenticateUser(
       const tokenPayload = verify(token, APP_SECRET) as JwtPayload;
       const userId = tokenPayload.userId;
       // 4
-      return await prisma.user.findUnique({ where: { id: userId } });
+      return await prisma.user.findUnique({
+        where: { id: userId },
+      });
     } catch (e: any) {
       return null;
     }
