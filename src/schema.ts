@@ -25,7 +25,8 @@ const typeDefs = /* GraphQL */ `
     userAnswerExists: Boolean
     friendFeed: [FriendAnswer!]!
     answersOfTheDay: [Answer!]!
-    friendRequests: [FriendRequest!]!
+    receivedFriendRequests: [FriendRequest!]!
+    sentFriendRequests: [FriendRequest!]!
     usersInContacts(contacts: [String!]!): [User!]!
   }
 
@@ -408,7 +409,7 @@ const resolvers = {
       });
       return users;
     },
-    friendRequests: async (
+    receivedFriendRequests: async (
       parent: unknown,
       args: {},
       context: GraphQLContext
@@ -422,6 +423,23 @@ const resolvers = {
       const receivedFriendRequests =
         await context.prisma.friendRequest.findMany({
           where: { receiverId: context.currentUser.id },
+        });
+      return receivedFriendRequests;
+    },
+    sentFriendRequests: async (
+      parent: unknown,
+      args: {},
+      context: GraphQLContext
+    ) => {
+      if (!context.currentUser)
+        throw new GraphQLError('NOT AUTHENTICATED', {
+          extensions: {
+            code: 'FORBIDDEN',
+          },
+        });
+      const receivedFriendRequests =
+        await context.prisma.friendRequest.findMany({
+          where: { senderId: context.currentUser.id },
         });
       return receivedFriendRequests;
     },
@@ -821,14 +839,14 @@ const resolvers = {
             code: 'FORBIDDEN',
           },
         });
-      const friendRequest = await context.prisma.friendRequest.findUnique({
+      const friendRequest = await context.prisma.friendRequest.delete({
         where: { id: args.friendRequestId },
       });
       await context.prisma.user.update({
         where: { id: context.currentUser.id },
         data: {
-          receivedFriendRequests: { disconnect: { id: args.friendRequestId } },
           friends: { connect: { id: friendRequest?.senderId } },
+          friendsOf: { connect: { id: friendRequest?.senderId } },
         },
       });
       return true;
@@ -844,11 +862,8 @@ const resolvers = {
             code: 'FORBIDDEN',
           },
         });
-      await context.prisma.user.update({
-        where: { id: context.currentUser.id },
-        data: {
-          sentFriendRequests: { disconnect: { id: args.friendRequestId } },
-        },
+      await context.prisma.friendRequest.delete({
+        where: { id: args.friendRequestId },
       });
       return true;
     },
