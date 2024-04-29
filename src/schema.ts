@@ -31,9 +31,18 @@ const typeDefs = /* GraphQL */ `
   }
 
   type Mutation {
-    login(phoneNumber: String!, password: String!): AuthPayload
+    login(
+      phoneNumber: String!
+      password: String!
+      deviceToken: String!
+    ): AuthPayload
     logout: Boolean
-    signUp(name: String!, phoneNumber: String!, password: String!): AuthPayload
+    signUp(
+      name: String!
+      phoneNumber: String!
+      password: String!
+      deviceToken: String!
+    ): AuthPayload
     refreshToken(refreshToken: String!): AuthPayload
     sendSMSVerificationCode(phoneNumber: String!): Boolean
     verifySMSCode(phoneNumber: String!, code: String!): Boolean
@@ -58,6 +67,7 @@ const typeDefs = /* GraphQL */ `
 
   type FriendAnswer {
     answers: [Answer!]!
+
     friend: User!
   }
 
@@ -303,15 +313,23 @@ const resolvers = {
             code: 'FORBIDDEN',
           },
         });
-      let currentQuestion: Question | null =
-        await context.prisma.question.findFirst();
-      const result = [currentQuestion];
-      while (currentQuestion?.nextQuestionId) {
+      let currentQuestions: Question[] | null =
+        await context.prisma.question.findMany({
+          where: { createdAt: { lt: new Date() }, type: 'USER' },
+        });
+
+      let currentQuestion: Question | null | undefined = currentQuestions
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+        .pop();
+      const result = [];
+      while (currentQuestion) {
+        result.push(currentQuestion);
+        if (!currentQuestion.nextQuestionId) break;
         currentQuestion = await context.prisma.question.findUnique({
           where: { id: currentQuestion.nextQuestionId },
         });
-        result.push(currentQuestion);
       }
+      console.log(result);
       return result;
     },
     userAnswerExists: async (
@@ -325,7 +343,14 @@ const resolvers = {
             code: 'FORBIDDEN',
           },
         });
-      const questionOfTheDay = await context.prisma.question.findFirst();
+      const currentQuestions: Question[] | null =
+        await context.prisma.question.findMany({
+          where: { createdAt: { lt: new Date() }, type: 'USER' },
+        });
+
+      const questionOfTheDay: Question | undefined = currentQuestions
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+        .pop();
       const found = await context.prisma.answer.findFirst({
         where: {
           userId: context.currentUser.id,
@@ -447,7 +472,7 @@ const resolvers = {
   Mutation: {
     login: async (
       parent: unknown,
-      args: { phoneNumber: string; password: string },
+      args: { phoneNumber: string; password: string; deviceToken: string },
       context: GraphQLContext
     ) => {
       const user = await context.prisma.user.findUnique({
