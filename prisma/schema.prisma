@@ -27,6 +27,7 @@ model User {
   friendsOf User[] @relation("Friends")
   sentFriendRequests FriendRequest[] @relation("SentFriendRequest")
   receivedFriendRequests FriendRequest[] @relation("ReceivedFriendRequest")
+  expoPushToken String?
 }
 
 model AnonUser {

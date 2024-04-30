@@ -24,6 +24,7 @@
   "dependencies": {
     "@graphql-tools/schema": "^10.0.3",
     "bcryptjs": "2.4.3",
+    "expo-server-sdk": "^3.9.0",
     "graphql": "^16.8.1",
     "graphql-yoga": "^5.1.1",
     "jsonwebtoken": "9.0.2",
