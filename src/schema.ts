@@ -19,6 +19,11 @@ import {
   newFriendRequestNotification,
 } from './utils/sendNotifications';
 
+type QuestionRequest = {
+  question: string;
+  type: QuestionType;
+};
+
 const typeDefs = /* GraphQL */ `
   type Query {
     user(id: ID!): User
@@ -50,7 +55,7 @@ const typeDefs = /* GraphQL */ `
     refreshToken(refreshToken: String!): AuthPayload
     sendSMSVerificationCode(phoneNumber: String!): Boolean
     verifySMSCode(phoneNumber: String!, code: String!): Boolean
-    createQuestionsOfTheDay(questions: [QuestionRequest!]!): Question
+    createQuestionsOfTheDay(questionRequests: [QuestionRequest!]!): Question
     answerQuestion(
       id: ID!
       answer: String!
@@ -75,11 +80,6 @@ const typeDefs = /* GraphQL */ `
     friend: User!
   }
 
-  type QuestionRequest {
-    question: String
-    type: QuestionType
-  }
-
   union AnswerUser = User | AnonUser
 
   enum AnswerType {
@@ -91,6 +91,11 @@ const typeDefs = /* GraphQL */ `
   enum QuestionType {
     TEXT
     USER
+  }
+
+  input QuestionRequest {
+    question: String
+    type: QuestionType
   }
 
   type User {
@@ -697,19 +702,16 @@ const resolvers = {
     createQuestionsOfTheDay: async (
       parent: unknown,
       args: {
-        questions: Array<{
-          question: string;
-          type: QuestionType;
-        }>;
+        questionRequests: QuestionRequest[];
       },
       context: GraphQLContext
     ) => {
       let previousQuestionId = null;
-      for (const question of args.questions) {
+      for (const questionRequest of args.questionRequests) {
         const questionResult = await context.prisma.question.create({
           data: {
-            question: question.question,
-            type: question.type,
+            question: questionRequest.question,
+            type: questionRequest.type,
           },
         });
         if (previousQuestionId) {
@@ -720,7 +722,6 @@ const resolvers = {
         }
         previousQuestionId = questionResult.id;
       }
-      
     },
     answerQuestion: async (
       parent: unknown,
