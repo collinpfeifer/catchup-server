@@ -58,8 +58,45 @@ export async function answerQuestionNotification({
     }
   }
 }
-export function newQuestionNotifications({
-  questionId,
+export async function newQuestionsNotifications({
+  expo,
+  pushTokens,
 }: {
-  questionId: string;
-}) {}
+  expo: Expo;
+  pushTokens: string[];
+}) {
+  const message = {
+    to: pushTokens,
+    title: 'New Question of The Day!',
+    body: 'Answer to see what your friends said about you!',
+  };
+  const chunks = expo.chunkPushNotifications([message]);
+  const tickets = await expo.sendPushNotificationsAsync([message]);
+  // Get all users
+  // Get all users that have notifications enabled
+  // Send notifications to all users
+  // Update the user's last notification date
+}
+
+export async function newFriendRequestNotification({
+  expo,
+  userExpoPushToken,
+}: {
+  expo: Expo;
+  userExpoPushToken: string | null | undefined;
+}) {
+  if (Expo.isExpoPushToken(userExpoPushToken)) {
+    const message = {
+      to: userExpoPushToken,
+      title: 'New friend request!',
+      body: 'You have a new friend request. Check it out now!',
+    };
+
+    const tickets = await expo.sendPushNotificationsAsync([message]);
+    for (const ticket of tickets) {
+      if (ticket.status === 'ok') {
+        console.log('Notification sent successfully');
+      }
+    }
+  }
+}

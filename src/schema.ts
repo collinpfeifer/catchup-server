@@ -14,7 +14,10 @@ import { sign, verify } from 'jsonwebtoken';
 import { APP_SECRET } from './auth';
 import { z } from 'zod';
 import { GraphQLError } from 'graphql';
-import { answerQuestionNotification } from './utils/sendNotifications';
+import {
+  answerQuestionNotification,
+  newFriendRequestNotification,
+} from './utils/sendNotifications';
 
 const typeDefs = /* GraphQL */ `
   type Query {
@@ -47,7 +50,7 @@ const typeDefs = /* GraphQL */ `
     refreshToken(refreshToken: String!): AuthPayload
     sendSMSVerificationCode(phoneNumber: String!): Boolean
     verifySMSCode(phoneNumber: String!, code: String!): Boolean
-    createQuestion(question: String!): Question
+    createQuestionsOfTheDay(questions: [QuestionRequest!]!): Question
     answerQuestion(
       id: ID!
       answer: String!
@@ -70,6 +73,11 @@ const typeDefs = /* GraphQL */ `
     answers: [Answer!]!
 
     friend: User!
+  }
+
+  type QuestionRequest {
+    question: String
+    type: QuestionType
   }
 
   union AnswerUser = User | AnonUser
@@ -686,14 +694,33 @@ const resolvers = {
         user: updatedUser,
       };
     },
-    createQuestion: async (
+    createQuestionsOfTheDay: async (
       parent: unknown,
-      args: { question: string; type: QuestionType },
+      args: {
+        questions: Array<{
+          question: string;
+          type: QuestionType;
+        }>;
+      },
       context: GraphQLContext
     ) => {
-      return await context.prisma.question.create({
-        data: { question: args.question, type: args.type },
-      });
+      let previousQuestionId = null;
+      for (const question of args.questions) {
+        const questionResult = await context.prisma.question.create({
+          data: {
+            question: question.question,
+            type: question.type,
+          },
+        });
+        if (previousQuestionId) {
+          await context.prisma.question.update({
+            where: { id: previousQuestionId },
+            data: { nextQuestionId: questionResult.id },
+          });
+        }
+        previousQuestionId = questionResult.id;
+      }
+      
     },
     answerQuestion: async (
       parent: unknown,
@@ -852,6 +879,13 @@ const resolvers = {
             create: { receiverId: args.userId },
           },
         },
+      });
+      const recievedUser = await context.prisma.user.findUnique({
+        where: { id: args.userId },
+      });
+      await newFriendRequestNotification({
+        expo: context.expo,
+        userExpoPushToken: recievedUser?.expoPushToken,
       });
       return true;
       // send notification to the user that they have a friend request
