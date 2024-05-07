@@ -58,6 +58,7 @@ export async function answerQuestionNotification({
     }
   }
 }
+
 export async function newQuestionsNotifications({
   expo,
   pushTokens,

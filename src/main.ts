@@ -4,7 +4,12 @@ import { createContext } from './context';
 import { schema } from './schema';
 
 function main() {
-  const yoga = createYoga({ schema, context: createContext });
+  const yoga = createYoga({
+    schema,
+    context: createContext,
+    logging: 'debug',
+    healthCheckEndpoint: '/health',
+  });
   const server = createServer(yoga);
   server.listen(4000, () => {
     console.info('Server is running on http://localhost:4000/graphql');
