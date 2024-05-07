@@ -13,7 +13,7 @@ function main() {
   const server = createServer(yoga);
   server.listen(process.env.PORT, () => {
     console.info(
-      `Server is running on ${process.env.HOST}:${process.env.PORT}`
+      `Server is running on port ${process.env.PORT}`
     );
   });
 }
