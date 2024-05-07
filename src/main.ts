@@ -11,8 +11,10 @@ function main() {
     healthCheckEndpoint: '/health',
   });
   const server = createServer(yoga);
-  server.listen(4000, () => {
-    console.info('Server is running on http://localhost:4000/graphql');
+  server.listen(process.env.PORT, () => {
+    console.info(
+      `Server is running on ${process.env.HOST}:${process.env.PORT}`
+    );
   });
 }
 
