@@ -553,7 +553,7 @@ const resolvers = {
           })
           .then((verification) => {
             console.log(verification.status);
-            return verification.status === 'approved';
+            return verification.status === 'pending';
           });
       }
     },
