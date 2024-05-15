@@ -551,7 +551,10 @@ const resolvers = {
             to: args.phoneNumber,
             channel: 'sms',
           })
-          .then((verification) => console.log(verification.status));
+          .then((verification) => {
+            console.log(verification.status);
+            return verification.status === 'approved';
+          });
       }
     },
     verifySMSCode: async (
@@ -568,7 +571,10 @@ const resolvers = {
           to: args.phoneNumber,
           code: args.code,
         })
-        .then((verification_check) => console.log(verification_check.status));
+        .then((verification_check) => {
+          console.log(verification_check.status);
+          return verification_check.status === 'approved';
+        });
     },
     refreshToken: async (
       parent: unknown,
