@@ -28,6 +28,7 @@ model User {
   sentFriendRequests FriendRequest[] @relation("SentFriendRequest")
   receivedFriendRequests FriendRequest[] @relation("ReceivedFriendRequest")
   expoPushToken String? @unique
+  @@unique([id, phoneNumber, expoPushToken])
 }
 
 model AnonUser {
