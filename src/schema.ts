@@ -510,6 +510,18 @@ const resolvers = {
       const refreshToken = sign({ userId: user.id }, APP_SECRET, {
         expiresIn: '90d',
       });
+
+      const pushTokenUser = await context.prisma.user.findUnique({
+        where: { expoPushToken: args.pushToken },
+      });
+
+      if (pushTokenUser) {
+        await context.prisma.user.update({
+          where: { id: pushTokenUser.id },
+          data: { expoPushToken: null },
+        });
+      }
+
       const updatedUser = await context.prisma.user.update({
         where: { id: user.id },
         data: { refreshToken, expoPushToken: args.pushToken },
@@ -529,7 +541,7 @@ const resolvers = {
         });
       await context.prisma.user.update({
         where: { id: context.currentUser.id },
-        data: { refreshToken: null },
+        data: { refreshToken: null, expoPushToken: null },
       });
     },
     sendSMSVerificationCode: async (
@@ -633,6 +645,17 @@ const resolvers = {
       });
 
       const password = await hash(args.password, 10);
+
+      const pushTokenUser = await context.prisma.user.findUnique({
+        where: { expoPushToken: args.pushToken },
+      });
+
+      if (pushTokenUser) {
+        await context.prisma.user.update({
+          where: { id: pushTokenUser.id },
+          data: { expoPushToken: null },
+        });
+      }
 
       const user = await context.prisma.user.create({
         data: {
