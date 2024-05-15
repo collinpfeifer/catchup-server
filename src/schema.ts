@@ -17,6 +17,7 @@ import { GraphQLError } from 'graphql';
 import {
   answerQuestionNotification,
   newFriendRequestNotification,
+  newQuestionsNotifications,
 } from './utils/sendNotifications';
 
 type QuestionRequest = {
@@ -722,6 +723,21 @@ const resolvers = {
         }
         previousQuestionId = questionResult.id;
       }
+      const users = await context.prisma.user.findMany({
+        select: { expoPushToken: true },
+      });
+      console.log(
+        users
+          .filter((user) => user?.expoPushToken)
+          .map((user) => user.expoPushToken)
+      );
+
+      // await newQuestionsNotifications({
+      //   expo: context.expo,
+      //   pushTokens: users
+      //     .filter((user) => user?.expoPushToken)
+      //     .map((user) => user.expoPushToken),
+      // });
     },
     answerQuestion: async (
       parent: unknown,
