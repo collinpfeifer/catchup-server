@@ -545,16 +545,14 @@ const resolvers = {
       else {
         if (!process.env.TWILIO_VERIFY_SERVICE_SID)
           throw new Error('No Twilio Verify Service SID');
-        context.twilioClient.verify.v2
+        const verification = await context.twilioClient.verify.v2
           .services(process.env.TWILIO_VERIFY_SERVICE_SID)
           .verifications.create({
             to: args.phoneNumber,
             channel: 'sms',
-          })
-          .then((verification) => {
-            console.log(verification.status);
-            return verification.status === 'pending';
           });
+        console.log(verification.status);
+        return verification.status === 'pending';
       }
     },
     verifySMSCode: async (
@@ -565,16 +563,14 @@ const resolvers = {
       if (!process.env.TWILIO_VERIFY_SERVICE_SID)
         throw new Error('No Twilio Verify Service SID');
       // Twilio when the phone number is verified
-      context.twilioClient.verify.v2
+      const verification = await context.twilioClient.verify.v2
         .services(process.env.TWILIO_VERIFY_SERVICE_SID)
         .verificationChecks.create({
           to: args.phoneNumber,
           code: args.code,
-        })
-        .then((verification_check) => {
-          console.log(verification_check.status);
-          return verification_check.status === 'approved';
         });
+      console.log(verification.status);
+      return verification.status === 'approved';
     },
     refreshToken: async (
       parent: unknown,
