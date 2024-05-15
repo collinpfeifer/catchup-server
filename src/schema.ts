@@ -732,18 +732,20 @@ const resolvers = {
       const users = await context.prisma.user.findMany({
         select: { expoPushToken: true },
       });
-      console.log(
-        users
-          .filter((user) => user?.expoPushToken)
-          .map((user) => user.expoPushToken)
-      );
+      const pushTokens: string[] = users
+        .filter((user: { expoPushToken: string | null }) => {
+          // Filter out objects where expoPushToken is null
+          return user?.expoPushToken !== null;
+        })
+        .map((user: { expoPushToken: string | null }) => {
+          // Safely extract expoPushToken (convert null to an empty string)
+          return user?.expoPushToken || '';
+        });
 
-      // await newQuestionsNotifications({
-      //   expo: context.expo,
-      //   pushTokens: users
-      //     .filter((user) => user?.expoPushToken)
-      //     .map((user) => user.expoPushToken),
-      // });
+      await newQuestionsNotifications({
+        expo: context.expo,
+        pushTokens,
+      });
     },
     answerQuestion: async (
       parent: unknown,
