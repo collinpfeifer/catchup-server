@@ -511,11 +511,11 @@ const resolvers = {
         expiresIn: '90d',
       });
 
-      const pushTokenUser = await context.prisma.user.findUnique({
+      const pushTokenUsers = await context.prisma.user.findMany({
         where: { expoPushToken: args.pushToken },
       });
 
-      if (pushTokenUser) {
+      for (const pushTokenUser of pushTokenUsers) {
         await context.prisma.user.update({
           where: { id: pushTokenUser.id },
           data: { expoPushToken: null },
@@ -646,11 +646,11 @@ const resolvers = {
 
       const password = await hash(args.password, 10);
 
-      const pushTokenUser = await context.prisma.user.findUnique({
+      const pushTokenUsers = await context.prisma.user.findMany({
         where: { expoPushToken: args.pushToken },
       });
 
-      if (pushTokenUser) {
+      for (const pushTokenUser of pushTokenUsers) {
         await context.prisma.user.update({
           where: { id: pushTokenUser.id },
           data: { expoPushToken: null },
