@@ -7,8 +7,9 @@ import { readFileSync } from 'node:fs';
 
 function main() {
   const persistedOperations = JSON.parse(
-    readFileSync('./persistedOperations.json', 'utf-8')
+    readFileSync('src/persistedOperations.json', 'utf-8')
   );
+
   const yoga = createYoga({
     schema,
     context: createContext,
