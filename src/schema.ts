@@ -19,6 +19,7 @@ import {
   newFriendRequestNotification,
   newQuestionsNotifications,
 } from './utils/sendNotifications';
+// import questionOrder from './utils/questionOrder';
 
 type QuestionRequest = {
   question: string;
@@ -36,6 +37,7 @@ const typeDefs = /* GraphQL */ `
     friendFeed: [FriendAnswer!]!
     answersOfTheDay: [Answer!]!
     receivedFriendRequests: [FriendRequest!]!
+    # questionOrder: [String!]!
     sentFriendRequests: [FriendRequest!]!
     usersInContacts(contacts: [String!]!): [User!]!
   }
@@ -383,7 +385,14 @@ const resolvers = {
       const friends = await context.prisma.user.findMany({
         where: { friends: { some: { id: context.currentUser.id } } },
       });
-      const questionOfTheDay = await context.prisma.question.findFirst();
+      const currentQuestions: Question[] | null =
+        await context.prisma.question.findMany({
+          where: { createdAt: { lt: new Date() }, type: 'USER' },
+        });
+
+      const questionOfTheDay: Question | null | undefined = currentQuestions
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+        .pop();
       const result = [];
       for (const friend of friends) {
         const friendAnswers = await context.prisma.answer.findMany({
@@ -443,6 +452,19 @@ const resolvers = {
       }
       return result;
     },
+    // questionOrder: async (
+    //   parent: unknown,
+    //   args: {},
+    //   context: GraphQLContext
+    // ) => {
+    //   // This is a placeholder resolver
+    //   let order = await questionOrder(context.prisma);
+    //   while (!order) {
+    //     order = await questionOrder(context.prisma);
+    //     console.log(order)
+    //   }
+    //   return order;
+    // },
     usersInContacts: async (
       parent: unknown,
       args: { contacts: string[] },
