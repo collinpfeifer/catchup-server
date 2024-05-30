@@ -55,6 +55,7 @@ const typeDefs = /* GraphQL */ `
       password: String!
       pushToken: String!
     ): AuthPayload
+    deleteUser(id: ID!): Boolean
     refreshToken(refreshToken: String!): AuthPayload
     sendSMSVerificationCode(phoneNumber: String!): Boolean
     verifySMSCode(phoneNumber: String!, code: String!): Boolean
@@ -69,6 +70,9 @@ const typeDefs = /* GraphQL */ `
     cancelFriendRequest(friendRequestId: ID!): Boolean
     acceptFriendRequest(friendRequestId: ID!): Boolean
     rejectFriendRequest(friendRequestId: ID!): Boolean
+    hideAnswer(answerId: ID!): Boolean
+    blockUser(userId: ID!): Boolean
+    reportAnswer(answerId: ID!): Boolean
   }
 
   type AuthPayload {
@@ -112,6 +116,7 @@ const typeDefs = /* GraphQL */ `
     answers: [[Answer!]!]!
     appearsIn: [[Answer!]!]!
     friends: [User!]!
+    hiddenAnswers: [Answer!]!
   }
 
   type AnonUser {
@@ -141,6 +146,8 @@ const typeDefs = /* GraphQL */ `
     updatedAt: String!
     userAnswer: AnswerUser
     textAnswer: String
+    hiddenBy: [User!]!
+    reported: Boolean!
   }
 
   type FriendRequest {
@@ -206,6 +213,40 @@ const resolvers = {
       });
       return friends;
     },
+    hiddenAnswers: async (parent: User, args: {}, context: GraphQLContext) => {
+      const hiddenAnswers = await context.prisma.answer.findMany({
+        where: { hiddenBy: { some: { userId: parent.id } } },
+      });
+      return hiddenAnswers;
+    },
+    // blocked: async (parent: User, args: {}, context: GraphQLContext) => {
+    //   const blocked = await context.prisma.user.findMany({
+    //     where: { blocked: { some: { blockedUserId: parent.id } } },
+    //   });
+    //   return blocked;
+    // },
+    // sentFriendRequests: async (
+    //   parent: User,
+    //   args: {},
+    //   context: GraphQLContext
+    // ) =>
+    //   await context.prisma.friendRequest.findMany({
+    //     where: { senderId: parent.id },
+    //   }),
+    // receivedFriendRequests: async (
+    //   parent: User,
+    //   args: {},
+    //   context: GraphQLContext
+    // ) =>
+    //   await context.prisma.friendRequest.findMany({
+    //     where: { receiverId: parent.id },
+    //   }),
+    // blockedBy: async (parent: User, args: {}, context: GraphQLContext) => {
+    //   const blockedBy = await context.prisma.user.findMany({
+    //     where: { blocked: { some: { userId: parent.id } } },
+    //   });
+    //   return blockedBy;
+    // },
   },
   AnonUser: {
     id: (parent: AnonUser) => parent.id,
@@ -276,6 +317,12 @@ const resolvers = {
       }
     },
     textAnswer: (parent: Answer) => parent.textAnswer,
+    hiddenBy: (parent: Answer, args: {}, context: GraphQLContext) => {
+      return context.prisma.answer.findMany({
+        where: { hiddenBy: { some: { id: parent.id } } },
+      });
+    },
+    reported: (parent: Answer) => parent.reported,
   },
   FriendRequest: {
     id: (parent: FriendRequest) => parent.id,
@@ -395,12 +442,15 @@ const resolvers = {
         .pop();
       const result = [];
       for (const friend of friends) {
+        console.log(friend);
         const friendAnswers = await context.prisma.answer.findMany({
           where: {
             userAnswerId: friend?.id,
             questionId: questionOfTheDay?.id,
+            hiddenBy: { none: { userId: context.currentUser.id } },
           },
         });
+        console.log(friendAnswers);
         const answers = [];
         for (const answer of friendAnswers) {
           let currentAnswer: Answer | null = answer;
@@ -411,7 +461,7 @@ const resolvers = {
             if (currentAnswer?.type === 'TEXT') answers.push(currentAnswer);
           }
         }
-        result.push({ answers, friend });
+        if (answers.length > 0) result.push({ answers, friend });
       }
       return result;
     },
@@ -438,8 +488,10 @@ const resolvers = {
         where: {
           userAnswerId: context.currentUser.id,
           questionId: questionOfTheDay?.id,
+          hiddenBy: { none: { userId: context.currentUser.id } },
         },
       });
+      console.log(userAnswers);
       const result = [];
       for (const answer of userAnswers) {
         let currentAnswer: Answer | null = answer;
@@ -565,6 +617,14 @@ const resolvers = {
         where: { id: context.currentUser.id },
         data: { refreshToken: null, expoPushToken: null },
       });
+    },
+    deleteUser: async (
+      parent: unknown,
+      args: { id: string },
+      context: GraphQLContext
+    ) => {
+      const user = await context.prisma.user.delete({ where: { id: args.id } });
+      return Boolean(user);
     },
     sendSMSVerificationCode: async (
       parent: unknown,
@@ -828,6 +888,11 @@ const resolvers = {
       } else if (args.type === 'USER') {
         const foundUser = await context.prisma.user.findUnique({
           where: { phoneNumber: args.answer },
+          select: {
+            id: true,
+            expoPushToken: true,
+            blocked: true,
+          },
         });
         if (!foundUser) {
           args.type = 'ANON_USER';
@@ -864,6 +929,16 @@ const resolvers = {
             });
           }
           return anonUserAnswer;
+        } else if (
+          foundUser.blocked.some(
+            (item) => item.blockedUserId === context.currentUser?.id
+          )
+        ) {
+          throw new GraphQLError('USER BLOCKED', {
+            extensions: {
+              code: 'FORBIDDEN',
+            },
+          });
         } else {
           const userAnswer = await context.prisma.answer.create({
             data: {
@@ -886,6 +961,7 @@ const resolvers = {
               data: { nextAnswerId: userAnswer.id },
             });
           }
+
           await answerQuestionNotification({
             expo: context.expo,
             userAnswerId: foundUser.id,
@@ -1011,6 +1087,128 @@ const resolvers = {
       await context.prisma.friendRequest.delete({
         where: { id: args.friendRequestId },
       });
+      return true;
+    },
+    hideAnswer: async (
+      parent: unknown,
+      args: { answerId: string },
+      context: GraphQLContext
+    ) => {
+      if (!context.currentUser)
+        throw new GraphQLError('NOT AUTHENTICATED', {
+          extensions: {
+            code: 'FORBIDDEN',
+          },
+        });
+      await context.prisma.answer.update({
+        where: { id: args.answerId },
+        data: {
+          hiddenBy: {
+            create: {
+              userId: context.currentUser.id,
+            },
+          },
+        },
+      });
+      let currentAnswer = await context.prisma.answer.findUnique({
+        where: { id: args.answerId },
+        include: { previousAnswer: true },
+      });
+      while (currentAnswer?.previousAnswer) {
+        await context.prisma.answer.update({
+          where: { id: currentAnswer?.previousAnswer?.id },
+          data: {
+            hiddenBy: {
+              create: {
+                userId: context.currentUser.id,
+              },
+            },
+          },
+        });
+        currentAnswer = await context.prisma.answer.findUnique({
+          where: { id: currentAnswer?.previousAnswer?.id },
+          include: { previousAnswer: true },
+        });
+      }
+      return true;
+    },
+    blockUser: async (
+      parent: unknown,
+      args: { userId: string; answerId: string },
+      context: GraphQLContext
+    ) => {
+      if (!context.currentUser)
+        throw new GraphQLError('NOT AUTHENTICATED', {
+          extensions: {
+            code: 'FORBIDDEN',
+          },
+        });
+      await context.prisma.answer.update({
+        where: { id: args.answerId },
+        data: {
+          hiddenBy: {
+            create: {
+              userId: context.currentUser.id,
+            },
+          },
+        },
+      });
+      let currentAnswer = await context.prisma.answer.findUnique({
+        where: { id: args.answerId },
+        include: { previousAnswer: true },
+      });
+      while (currentAnswer?.previousAnswer) {
+        await context.prisma.answer.update({
+          where: { id: currentAnswer?.previousAnswer?.id },
+          data: {
+            hiddenBy: {
+              create: {
+                userId: context.currentUser.id,
+              },
+            },
+          },
+        });
+        currentAnswer = await context.prisma.answer.findUnique({
+          where: { id: currentAnswer?.previousAnswer?.id },
+          include: { previousAnswer: true },
+        });
+      }
+      await context.prisma.user.update({
+        where: { id: context.currentUser.id },
+        data: {
+          blocked: {
+            create: {
+              blockedUserId: args.userId,
+            },
+          },
+        },
+      });
+
+      return true;
+    },
+    reportAnswer: async (
+      parent: unknown,
+      args: { answerId: string },
+      context: GraphQLContext
+    ) => {
+      await context.prisma.answer.update({
+        where: { id: args.answerId },
+        data: { reported: true },
+      });
+      (async function () {
+        const { data, error } = await context.resend.emails.send({
+          from: 'catch-upreporting@bloompass.io',
+          to: ['cpfeifer@madcactus.org'],
+          subject: 'Catch-Up User/Answer Reported',
+          html: `<p>Answer with id ${args.answerId} has been reported</p>`,
+        });
+
+        if (error) {
+          return console.error({ error });
+        }
+
+        console.log({ data });
+      })();
       return true;
     },
   },

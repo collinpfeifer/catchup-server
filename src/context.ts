@@ -4,6 +4,9 @@ import { authenticateUser } from './auth';
 import twilio from 'twilio';
 import TwilioSDK from 'twilio';
 import { Expo } from 'expo-server-sdk';
+import { Resend } from 'resend';
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const prisma = new PrismaClient();
 const twilioClient = twilio(
@@ -18,6 +21,7 @@ export type GraphQLContext = {
   prisma: PrismaClient;
   currentUser: null | User;
   twilioClient: TwilioSDK.Twilio;
+  resend: Resend;
   expo: Expo;
 };
 
@@ -28,6 +32,7 @@ export async function createContext(
     twilioClient,
     expo,
     prisma,
+    resend,
     currentUser: await authenticateUser(prisma, initialContext.request),
   };
 }

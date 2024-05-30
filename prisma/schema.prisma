@@ -28,6 +28,29 @@ model User {
   sentFriendRequests FriendRequest[] @relation("SentFriendRequest")
   receivedFriendRequests FriendRequest[] @relation("ReceivedFriendRequest")
   expoPushToken String? @unique
+  blocked BlockedUser[] @relation("BlockedBy")
+  blockedBy BlockedUser[] @relation("Blocked")
+  hiddenAnswers HiddenAnswer[] @relation("HiddenBy")
+}
+
+model BlockedUser {
+  id String @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation("BlockedBy",fields: [userId], references: [id])
+  userId String
+  blockedUser User @relation("Blocked",fields: [blockedUserId], references: [id])
+  blockedUserId String
+}
+
+model HiddenAnswer {
+  id String @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation("HiddenBy",fields: [userId], references: [id])
+  userId String
+  answer Answer @relation("Hidden",fields: [answerId], references: [id])
+  answerId String
 }
 
 model AnonUser {
@@ -78,6 +101,8 @@ model Answer {
   nextAnswer Answer? @relation("AnswerHistory",fields: [nextAnswerId], references: [id])
   nextAnswerId String? @unique
   previousAnswer Answer? @relation("AnswerHistory")
+  hiddenBy HiddenAnswer[] @relation("Hidden")
+  reported Boolean @default(false)
 }
 
 
