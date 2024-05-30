@@ -1206,12 +1206,13 @@ const resolvers = {
         });
 
         if (error) {
-          return console.error({ error });
+          console.error({ error });
+          return false;
+        } else {
+          console.log({ data });
+          return true;
         }
-
-        console.log({ data });
       })();
-      return true;
     },
   },
 };
