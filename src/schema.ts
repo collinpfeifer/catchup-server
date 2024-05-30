@@ -214,8 +214,10 @@ const resolvers = {
       return friends;
     },
     hiddenAnswers: async (parent: User, args: {}, context: GraphQLContext) => {
-      const hiddenAnswers = await context.prisma.answer.findMany({
-        where: { hiddenBy: { some: { userId: parent.id } } },
+      const hiddenAnswers = await context.prisma.hiddenAnswer.findMany({
+        where: {
+          userId: parent.id,
+        },
       });
       return hiddenAnswers;
     },
@@ -318,8 +320,8 @@ const resolvers = {
     },
     textAnswer: (parent: Answer) => parent.textAnswer,
     hiddenBy: (parent: Answer, args: {}, context: GraphQLContext) => {
-      return context.prisma.answer.findMany({
-        where: { hiddenBy: { some: { id: parent.id } } },
+      return context.prisma.hiddenAnswer.findMany({
+        where: { answerId: parent.id },
       });
     },
     reported: (parent: Answer) => parent.reported,
